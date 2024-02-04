@@ -109,6 +109,37 @@ func (w MediaWidth) String() string {
 	}
 }
 
+type Px uint
+
+func (w MediaWidth) Px() (Px, error) {
+	switch w {
+	case Width3_5:
+		return 24, nil
+	case Width6:
+		return 32, nil
+	case Width9:
+		return 50, nil
+	case Width12:
+		return 70, nil
+	case Width18:
+		return 112, nil
+	case Width24:
+		return 128, nil
+	default:
+		return 0, fmt.Errorf("unknown tape width")
+	}
+}
+
+func (w MediaWidth) MinLength() Px {
+	// Brother PDF 2.3.3 (I think, later it says 24.5mm..)
+	return 172
+}
+
+func (w MediaWidth) DPI() int {
+	// Brother PDF 2.3.4
+	return 180
+}
+
 type MediaType byte
 
 const (

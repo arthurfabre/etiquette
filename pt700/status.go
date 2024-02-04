@@ -12,6 +12,17 @@ type Status struct {
 	Type  MediaType
 }
 
+// Err returns an error representing this status, or nil if there is no error.
+func (s Status) Err() error {
+	if s.Err1 != 0 {
+		return fmt.Errorf("%v", s.Err1)
+	}
+	if s.Err2 != 0 {
+		return fmt.Errorf("%v", s.Err2)
+	}
+	return nil
+}
+
 type Error1 byte
 
 const (

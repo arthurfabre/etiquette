@@ -17,7 +17,7 @@ type Opts struct {
 	Font   *opentype.Font
 }
 
-func Render(text string, opts Opts) (image.Image, error) {
+func Render(text string, opts Opts) (*image.Gray, error) {
 	face, err := face(opts)
 	if err != nil {
 		return nil, err

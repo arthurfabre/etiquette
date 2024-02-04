@@ -26,30 +26,38 @@ const (
 )
 
 func (e Error1) String() string {
-	if e == 0 {
+	return bitfieldString(e, []bitfield[Error1]{
+		{Err1NoMedia, "NoMedia"},
+		{Err1CutterJam, "CutterJam"},
+		{Err1WeakBatteries, "WeakBatteries"},
+		{Err1HighVoltageAdapter, "HighVoltageAdapter"},
+	})
+}
+
+type bitfield[B ~byte] struct {
+	b    B
+	name string
+}
+
+func bitfieldString[B ~byte](val B, fields []bitfield[B]) string {
+	if val == 0 {
 		return "None"
 	}
 
-	var set []string
+	var (
+		set  []string
+		seen B
+	)
 
-	for i := 0; i < 8; i++ {
-		if e&(1<<i) == 0 {
-			continue
+	for _, field := range fields {
+		if val&(field.b) != 0 {
+			set = append(set, field.name)
+			seen = seen | field.b
 		}
-		err := Error1(1 << i)
+	}
 
-		switch err {
-		case Err1NoMedia:
-			set = append(set, "NoMedia")
-		case Err1CutterJam:
-			set = append(set, "CutterJam")
-		case Err1WeakBatteries:
-			set = append(set, "WeakBatteries")
-		case Err1HighVoltageAdapter:
-			set = append(set, "HighVoltageAdapter")
-		default:
-			set = append(set, fmt.Sprintf("Unknown(%x)", byte(err)))
-		}
+	if unknown := val & ^seen; unknown != 0 {
+		set = append(set, fmt.Sprintf("Unknown(0x%x)", unknown))
 	}
 
 	return strings.Join(set, "|")
@@ -67,6 +75,14 @@ const (
 	_
 	_
 )
+
+func (e Error2) String() string {
+	return bitfieldString(e, []bitfield[Error2]{
+		{Err2ReplaceMedia, "ReplaceMedia"},
+		{Err2CoverOpen, "CoverOpen"},
+		{Err2Overheating, "Overheating"},
+	})
+}
 
 type MediaWidth uint8
 

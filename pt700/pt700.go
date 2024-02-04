@@ -3,7 +3,8 @@ package pt700
 import (
 	"errors"
 	"fmt"
-	"io"
+	"image"
+	"image/color"
 	"math"
 	"os"
 	"time"
@@ -20,7 +21,61 @@ func Open(path string) (PT700, error) {
 	return PT700(fd), err
 }
 
-func (p PT700) Invalidate() error {
+// Print "chain-prints" the images as one job so the ~24.5mm of blank start tape is only needed once.
+// The images will be individually cut.
+func (p PT700) Print(imgs ...image.PalettedImage) error {
+	if err := p.invalidate(); err != nil {
+		return err
+	}
+
+	// Initialize.
+	if err := p.write([]byte{0x1B, 0x40}); err != nil {
+		return fmt.Errorf("initialize: %w", err)
+	}
+
+	// Docs says we need to Status() at least once, do it just in case.
+	// We can also check the tape size in case it has changed.
+	// TODO - do we get an error if the tape door is openned after this point?
+	/*status, err := p.Status()
+	if err != nil {
+		return err
+	}
+	if err := status.Err(); err != nil {
+		return err
+	}
+
+	px, err := status.Width.Px()
+	if err != nil {
+		return err
+	}
+
+	for _, img := range imgs {
+		// TODO - check color model too! Need to iterate over it, and check it's only White or Black.
+
+		if gotPx := Px(img.Bounds().Dy()); gotPx != px {
+			return fmt.Errorf("printer has %v tape, expected %dpx img but got %dpx", status.Width, px, gotPx)
+		}
+	}*/
+
+	// Actually print.
+	for i, img := range imgs {
+		var pos pagePos
+		if i == 0 {
+			pos = pos | first
+		}
+		if i == len(imgs)-1 {
+			pos = pos | last
+		}
+
+		if err := p.printPage(pos, img); err != nil {
+			return fmt.Errorf("printing page %d: %w", i, err)
+		}
+	}
+
+	return nil
+}
+
+func (p PT700) invalidate() error {
 	// Invalidate. Brother docs 2.1.1 sends 100 bytes, so we do too.
 	if err := p.write(make([]byte, 100)); err != nil {
 		return fmt.Errorf("invalidate: %w", err)
@@ -28,16 +83,145 @@ func (p PT700) Invalidate() error {
 	return nil
 }
 
-func initialize(printer *os.File) error {
-	// TODO - this seemingly starts printing, and then we can't send status more than once?
-	// Query the status first, and then start printing.
-	// Initialize.
-	/*_, err = printer.Write([]byte{0x1B, 0x40})
+// Position of page in job.
+// Can be both first and last if it's the only page.
+type pagePos int
+
+const (
+	middle pagePos = 0
+	first  pagePos = 1 << iota
+	last
+)
+
+func (p PT700) printPage(pos pagePos, img image.PalettedImage) error {
+	// Control codes (Brother PDF 2.1.2).
+	// Raster mode.
+	if err := p.write([]byte{0x1B, 0x69, 0x61, 0x01}); err != nil {
+		return fmt.Errorf("enabling raster mode: %w", err)
+	}
+
+	// Print information.
+	notFirst := byte(1)
+	if pos&first != 0 {
+		notFirst = 0
+	}
+	if err := p.write([]byte{
+		0x1B, 0x69, 0x7A,
+		// Only validate the media width in case the tape has changed,
+		// the type and length don't really matter,
+		// PrinterRecovery should always be on according to the manual.
+		0x84,
+		0x00,                    // Type.
+		byte(img.Bounds().Dx()), // TODO - is this good enough? Should we tryu to get it from status?
+		0x00,                    // Length.
+		// "Raster number". No clue what this means, but the example sets it to this.
+		0xAA, 0x02, 0x00, 0x00,
+		notFirst,
+		// n10: always 0.
+		0x00,
+	}); err != nil {
+		return fmt.Errorf("print information: %w", err)
+	}
+
+	// Mode settings.
+	if err := p.write([]byte{
+		0x1B, 0x69, 0x4D,
+		// Enable auto cut.
+		0x40,
+	}); err != nil {
+		return fmt.Errorf("mode settings: %w", err)
+	}
+
+	// Advanced mode settings.
+	if err := p.write([]byte{
+		0x1B, 0x69, 0x4B,
+		// Keep chain-printing enabled.
+		0x00,
+	}); err != nil {
+		return fmt.Errorf("advanced mode settings: %w", err)
+	}
+
+	// Margin.
+	if err := p.write([]byte{
+		0x1B, 0x69, 0x64,
+		// 1mm margins (7 dots).
+		0x07, 0x00,
+	}); err != nil {
+		return fmt.Errorf("margins: %w", err)
+	}
+
+	// Compression.
+	if err := p.write([]byte{
+		0x4D,
+		// No compression.
+		0x00,
+	}); err != nil {
+		return fmt.Errorf("compression: %w", err)
+	}
+
+	// Raster data.
+	if err := p.printRaster(img); err != nil {
+		return fmt.Errorf("raster: %w", err)
+	}
+
+	// Print.
+	printCmd := byte(0x0C)
+	if pos&last != 0 {
+		// Print and feed.
+		printCmd = 0x1A
+	}
+	if err := p.write([]byte{printCmd}); err != nil {
+		return fmt.Errorf("print: %w", err)
+	}
+
+	// Read status x2? Or maybe x3?
+	s, err := p.readStatus()
 	if err != nil {
-		return fmt.Errorf("initialize: %w", err)
-	}*/
+		return err
+	}
+	fmt.Println(s)
 
 	return nil
+}
+
+func (p PT700) printRaster(img image.PalettedImage) error {
+	// Without compression no need to specify data for unused pins
+	// but I think we need to specify the width offset?
+	for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+		if err := p.printLine(img, x); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p PT700) printLine(img image.PalettedImage, x int) error {
+	black := uint8(0)
+	if img.ColorModel().(color.Palette)[0] == color.White {
+		black = 1
+	}
+
+	line := make([]byte, 16)
+
+	px := 0
+
+	// Add the width offset.
+	px += 48 // Actually this is the margin!
+
+	// Send the whole vertical line.
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		byt := px / 8
+		bit := px % 8
+
+		if img.ColorIndexAt(x, y) == black {
+			line[byt] = line[byt] | (1 << bit)
+		}
+
+		px++
+	}
+
+	return p.write(append([]byte{0x67, 16, 0}, line...))
 }
 
 func (p PT700) Status() (Status, error) {
@@ -45,8 +229,12 @@ func (p PT700) Status() (Status, error) {
 		return Status{}, fmt.Errorf("status write: %w", err)
 	}
 
+	return p.readStatus()
+}
+
+func (p PT700) readStatus() (Status, error) {
 	resp := make([]byte, 32)
-	if err := p.read(resp, time.Second); err != nil {
+	if err := p.read(resp, time.Second*10); err != nil {
 		return Status{}, fmt.Errorf("status read: %w", err)
 	}
 
@@ -128,24 +316,26 @@ func readUntilEOF(fd int, b []byte) (int, error) {
 	read := 0
 
 	for first := true; read != len(b); first = false {
+		_ = first
+
 		n, err := unix.Read(fd, b[read:])
 		switch {
 		case errors.Is(unix.EINTR, err):
 			continue
 		case err != nil:
 			return 0, err
-		case n == 0 && first:
-			// I don't understand why, but ocasionally the first read() will return 0.
-			// Subsequent read()s succeed as expected, so we tolerate this.
+		//case n == 0 && first:
+		// I don't understand why, but ocasionally the first read() will return 0.
+		// Subsequent read()s succeed as expected, so we tolerate this.
 		case n == 0:
-			return read, io.ErrUnexpectedEOF
+			//return read, io.ErrUnexpectedEOF
 		}
 
 		read += n
 	}
 
 	// Make sure we're at EOF.
-	for {
+	/*for {
 		trailing := make([]byte, 128)
 		n, err := unix.Read(fd, trailing)
 		switch {
@@ -158,7 +348,9 @@ func readUntilEOF(fd int, b []byte) (int, error) {
 		}
 
 		return read, nil
-	}
+	}*/
+
+	return read, nil
 }
 
 func (p PT700) Close() error {

@@ -223,8 +223,8 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 // minLengthPadding returns the number of empty raster lines needed to center
 // an image narrower than the printer's minimum printable length.
 func minLengthPadding(width MediaWidth, margin Px, img image.PalettedImage) Px {
-	if pad := (width.MinLength(margin) - Px(img.Bounds().Dx())) / 2; pad > 0 {
-		return pad
+	if pad := (int(width.MinLength(margin)) - img.Bounds().Dx()) / 2; pad > 0 {
+		return Px(pad)
 	}
 	return 0
 }

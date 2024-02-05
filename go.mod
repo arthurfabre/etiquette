@@ -1,4 +1,4 @@
-module afab.re/etiquette
+module go.afab.re/etiquette
 
 go 1.21.5
 

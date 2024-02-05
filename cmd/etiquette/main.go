@@ -11,9 +11,9 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 
-	"afab.re/etiquette"
-	"afab.re/etiquette/otsu"
-	"afab.re/etiquette/pt700"
+	"go.afab.re/etiquette"
+	"go.afab.re/etiquette/otsu"
+	"go.afab.re/etiquette/pt700"
 )
 
 func main() {

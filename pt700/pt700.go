@@ -147,8 +147,8 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	// Margin.
 	if err := p.write([]byte{
 		0x1B, 0x69, 0x64,
-		// 1mm margins (7 dots).
-		0x07, 0x00,
+		// 2mm margins (14 dots). Minimum according to manual 2.3.3.
+		0x0E, 0x00,
 	}); err != nil {
 		return fmt.Errorf("margins: %w", err)
 	}

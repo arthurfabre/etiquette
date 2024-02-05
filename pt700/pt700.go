@@ -36,7 +36,6 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 
 	// Docs says we need to Status() at least once, do it just in case.
 	// We can also check the tape size in case it has changed.
-	// TODO - do we get an error if the tape door is openned after this point?
 	status, err := p.status()
 	if err != nil {
 		return err
@@ -45,17 +44,8 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 		return err
 	}
 
-	px, err := status.MediaWidth.Px()
-	if err != nil {
+	if err := checkImgs(status.MediaWidth, imgs...); err != nil {
 		return err
-	}
-
-	for _, img := range imgs {
-		// TODO - check color model too! Need to iterate over it, and check it's only White or Black.
-
-		if gotPx := Px(img.Bounds().Dy()); gotPx != px {
-			return fmt.Errorf("printer has %v tape, expected %dpx img but got %dpx", status.MediaWidth, px, gotPx)
-		}
 	}
 
 	// Actually print.
@@ -84,6 +74,29 @@ func (p PT700) reset() error {
 
 	// Discard any leftover junk we or other programs didn't read.
 	return readUntilEOF(int(p))
+}
+
+func checkImgs(width MediaWidth, imgs ...image.PalettedImage) error {
+	px, err := width.Px()
+	if err != nil {
+		return err
+	}
+
+	for _, img := range imgs {
+		if gotPx := Px(img.Bounds().Dy()); gotPx != px {
+			return fmt.Errorf("printer has %v tape, expected %dpx img but got %dpx", width, px, gotPx)
+		}
+
+		plt := img.ColorModel().(color.Palette)
+		switch {
+		case len(plt) != 2:
+			return fmt.Errorf("image isn't monochrome")
+		case !((plt[0] == color.White && plt[1] == color.Black) || (plt[0] == color.Black && plt[1] == color.White)):
+			return fmt.Errorf("image isn't black and white")
+		}
+	}
+
+	return nil
 }
 
 // Position of page in job.

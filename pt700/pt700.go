@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-	"io"
 	"math"
 	"os"
 	"time"
@@ -307,9 +306,7 @@ func (p PT700) read(buf []byte, timeout time.Duration) error {
 			return fmt.Errorf("poll() returned but no data, n %d, revents: %x", n, pollFds[0].Revents)
 		}
 
-		// Always read until EOF, to make sure we don't leave any garbage behind
-		// that would mess up future commands.
-		n, err = readUntilEOF(int(p), buf[read:])
+		n, err = readFull(int(p), buf[read:])
 		if err != nil {
 			return err
 		}
@@ -319,44 +316,30 @@ func (p PT700) read(buf []byte, timeout time.Duration) error {
 	return nil
 }
 
-// readUntilEOF reads len(b) bytes from fd, and ensures there is nothing else immediately available to read.
-// This helps catch issues if the printer returns more data than we expect, which we could try
-// to parse later on.
-func readUntilEOF(fd int, b []byte) (int, error) {
+// readFull reads up to len(b) bytes, or EOF from fd.
+// On EOF no error is returned.
+func readFull(fd int, b []byte) (int, error) {
 	read := 0
 
-	for first := true; read != len(b); first = false {
+	for read != len(b) {
 		n, err := unix.Read(fd, b[read:])
 		switch {
 		case errors.Is(unix.EINTR, err):
 			continue
 		case err != nil:
 			return 0, err
-		case n == 0 && first:
-			// I don't understand why, but ocasionally the first read() will return 0.
-			// Subsequent read()s succeed as expected, so we tolerate this.
+		// EOF.
 		case n == 0:
-			return read, io.ErrUnexpectedEOF
+			// Sometimes we seem to get spurious poll() events when there's nothing
+			// actually available to read.
+			// There are also no guarantees the full len(b) are immediately available to read.
+			return read, nil
 		}
 
 		read += n
 	}
 
-	// Make sure we're at EOF.
-	for {
-		trailing := make([]byte, 128)
-		n, err := unix.Read(fd, trailing)
-		switch {
-		case errors.Is(unix.EINTR, err):
-			continue
-		case err != nil:
-			return 0, err
-		case n != 0:
-			return read, fmt.Errorf("unexpected trailing data %v", trailing[:n])
-		}
-
-		return read, nil
-	}
+	return read, nil
 }
 
 func (p PT700) Close() error {

@@ -220,7 +220,7 @@ func (p PT700) printLine(width MediaWidth, img image.PalettedImage, x int) error
 		bit := px % 8
 
 		if img.ColorIndexAt(x, y) == black {
-			line[byt] = line[byt] | (1 << bit)
+			line[byt] = line[byt] | (1<<7)>>bit
 		}
 
 		px++

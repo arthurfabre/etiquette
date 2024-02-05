@@ -1,6 +1,7 @@
 package pt700
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"image"
@@ -36,7 +37,7 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 	// Docs says we need to Status() at least once, do it just in case.
 	// We can also check the tape size in case it has changed.
 	// TODO - do we get an error if the tape door is openned after this point?
-	/*status, err := p.Status()
+	status, err := p.Status()
 	if err != nil {
 		return err
 	}
@@ -55,7 +56,7 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 		if gotPx := Px(img.Bounds().Dy()); gotPx != px {
 			return fmt.Errorf("printer has %v tape, expected %dpx img but got %dpx", status.Width, px, gotPx)
 		}
-	}*/
+	}
 
 	// Actually print.
 	for i, img := range imgs {
@@ -67,7 +68,7 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 			pos = pos | last
 		}
 
-		if err := p.printPage(pos, img); err != nil {
+		if err := p.printPage(status.Width, pos, img); err != nil {
 			return fmt.Errorf("printing page %d: %w", i, err)
 		}
 	}
@@ -93,33 +94,35 @@ const (
 	last
 )
 
-func (p PT700) printPage(pos pagePos, img image.PalettedImage) error {
+func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage) error {
 	// Control codes (Brother PDF 2.1.2).
 	// Raster mode.
 	if err := p.write([]byte{0x1B, 0x69, 0x61, 0x01}); err != nil {
 		return fmt.Errorf("enabling raster mode: %w", err)
 	}
 
-	// Print information.
-	notFirst := byte(1)
-	if pos&first != 0 {
-		notFirst = 0
-	}
-	if err := p.write([]byte{
+	// Print information
+	info := []byte{
 		0x1B, 0x69, 0x7A,
 		// Only validate the media width in case the tape has changed,
 		// the type and length don't really matter,
 		// PrinterRecovery should always be on according to the manual.
 		0x84,
-		0x00,                    // Type.
-		byte(img.Bounds().Dx()), // TODO - is this good enough? Should we tryu to get it from status?
-		0x00,                    // Length.
-		// "Raster number". No clue what this means, but the example sets it to this.
-		0xAA, 0x02, 0x00, 0x00,
-		notFirst,
-		// n10: always 0.
-		0x00,
-	}); err != nil {
+		0x00,        // Type, we don't request validation.
+		byte(width), // Media width mm.
+		0x00,        // Media length mm, we don't request validation.
+	}
+	// Number of raster lines (length of the label / width of the image).
+	info = binary.LittleEndian.AppendUint32(info, uint32(img.Bounds().Dx()))
+	// Starting page or not.
+	if pos&first != 0 {
+		info = append(info, 0x00)
+	} else {
+		info = append(info, 0x01)
+	}
+	// n10: always 0.
+	info = append(info, 0x00)
+	if err := p.write(info); err != nil {
 		return fmt.Errorf("print information: %w", err)
 	}
 

@@ -1,7 +1,7 @@
 # golang.org/x/image v0.15.0
 ## explicit; go 1.18
 golang.org/x/image/font
-golang.org/x/image/font/gofont/gomono
+golang.org/x/image/font/gofont/goregular
 golang.org/x/image/font/opentype
 golang.org/x/image/font/sfnt
 golang.org/x/image/math/fixed

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"golang.org/x/image/font/gofont/gomono"
+	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 
 	"afab.re/etiquette"
@@ -39,7 +39,7 @@ func print(printerPath string, text string) error {
 		return err
 	}
 
-	ft, err := opentype.Parse(gomono.TTF)
+	ft, err := opentype.Parse(goregular.TTF)
 	if err != nil {
 		return err
 	}

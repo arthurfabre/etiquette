@@ -25,11 +25,11 @@ func Open(path string) (PT700, error) {
 // Print the images as pages of one job so the ~24.5mm of blank start tape is only needed once.
 // The images will be individually cut.
 func (p PT700) Print(imgs ...image.PalettedImage) error {
-	if err := p.invalidate(); err != nil {
+	if err := p.reset(); err != nil {
 		return err
 	}
 
-	// Initialize.
+	// Initialize. This seems to start the print job.
 	if err := p.write([]byte{0x1B, 0x40}); err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
@@ -37,7 +37,7 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 	// Docs says we need to Status() at least once, do it just in case.
 	// We can also check the tape size in case it has changed.
 	// TODO - do we get an error if the tape door is openned after this point?
-	status, err := p.Status()
+	status, err := p.status()
 	if err != nil {
 		return err
 	}
@@ -76,12 +76,14 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 	return nil
 }
 
-func (p PT700) invalidate() error {
+func (p PT700) reset() error {
 	// Invalidate. Brother docs 2.1.1 sends 100 bytes, so we do too.
 	if err := p.write(make([]byte, 100)); err != nil {
 		return fmt.Errorf("invalidate: %w", err)
 	}
-	return nil
+
+	// Discard any leftover junk we or other programs didn't read.
+	return readUntilEOF(int(p))
 }
 
 // Position of page in job.
@@ -233,6 +235,15 @@ func (p PT700) printLine(width MediaWidth, img image.PalettedImage, x int) error
 }
 
 func (p PT700) Status() (Status, error) {
+	if err := p.reset(); err != nil {
+		return Status{}, err
+	}
+
+	return p.status()
+}
+
+// Status() but without reset().
+func (p PT700) status() (Status, error) {
 	if err := p.write([]byte{0x1B, 0x69, 0x53}); err != nil {
 		return Status{}, fmt.Errorf("status write: %w", err)
 	}
@@ -340,6 +351,23 @@ func readFull(fd int, b []byte) (int, error) {
 	}
 
 	return read, nil
+}
+
+func readUntilEOF(fd int) error {
+	b := make([]byte, 128)
+
+	for {
+		n, err := unix.Read(fd, b)
+		switch {
+		case errors.Is(unix.EINTR, err):
+			continue
+		case err != nil:
+			return err
+		// EOF.
+		case n == 0:
+			return nil
+		}
+	}
 }
 
 func (p PT700) Close() error {

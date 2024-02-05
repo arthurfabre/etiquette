@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io"
 	"math"
 	"os"
 	"time"
@@ -322,26 +323,24 @@ func readUntilEOF(fd int, b []byte) (int, error) {
 	read := 0
 
 	for first := true; read != len(b); first = false {
-		_ = first
-
 		n, err := unix.Read(fd, b[read:])
 		switch {
 		case errors.Is(unix.EINTR, err):
 			continue
 		case err != nil:
 			return 0, err
-		//case n == 0 && first:
-		// I don't understand why, but ocasionally the first read() will return 0.
-		// Subsequent read()s succeed as expected, so we tolerate this.
+		case n == 0 && first:
+			// I don't understand why, but ocasionally the first read() will return 0.
+			// Subsequent read()s succeed as expected, so we tolerate this.
 		case n == 0:
-			//return read, io.ErrUnexpectedEOF
+			return read, io.ErrUnexpectedEOF
 		}
 
 		read += n
 	}
 
 	// Make sure we're at EOF.
-	/*for {
+	for {
 		trailing := make([]byte, 128)
 		n, err := unix.Read(fd, trailing)
 		switch {
@@ -354,9 +353,7 @@ func readUntilEOF(fd int, b []byte) (int, error) {
 		}
 
 		return read, nil
-	}*/
-
-	return read, nil
+	}
 }
 
 func (p PT700) Close() error {

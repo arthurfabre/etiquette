@@ -23,7 +23,7 @@ func Open(path string) (PT700, error) {
 	return PT700(fd), err
 }
 
-// Print "chain-prints" the images as one job so the ~24.5mm of blank start tape is only needed once.
+// Print the images as pages of one job so the ~24.5mm of blank start tape is only needed once.
 // The images will be individually cut.
 func (p PT700) Print(imgs ...image.PalettedImage) error {
 	if err := p.invalidate(); err != nil {
@@ -139,8 +139,10 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	// Advanced mode settings.
 	if err := p.write([]byte{
 		0x1B, 0x69, 0x4B,
-		// Keep chain-printing enabled.
-		0x00,
+		// "Chain-printing" lets the printer print several jobs in a row,
+		// by not feeding out the label and cutting it for the last page.
+		// We print all the labels as pages of one job, so we actually don't want chain-printing.
+		0x08,
 	}); err != nil {
 		return fmt.Errorf("advanced mode settings: %w", err)
 	}

@@ -224,7 +224,9 @@ func (p PT700) printLine(img image.PalettedImage, x int) error {
 		px++
 	}
 
-	return p.write(append([]byte{0x67, 16, 0}, line...))
+	// Manual says 0x67! But that doesn't work, and the example
+	// in 2.2.3 uses 0x47.
+	return p.write(append([]byte{0x47, 16, 0}, line...))
 }
 
 func (p PT700) Status() (Status, error) {

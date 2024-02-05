@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"image"
+	"io"
 	"os"
 
 	"golang.org/x/image/font/gofont/goregular"
@@ -13,13 +16,13 @@ import (
 )
 
 func main() {
-	if err := print(os.Args[1], os.Args[2]); err != nil {
+	if err := print(os.Args[1], os.Stdin); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(-1)
 	}
 }
 
-func print(printerPath string, text string) error {
+func print(printerPath string, labels io.Reader) error {
 	printer, err := pt700.Open(printerPath)
 	if err != nil {
 		return err
@@ -44,16 +47,20 @@ func print(printerPath string, text string) error {
 		return err
 	}
 
-	img, err := etiquette.Render(text, etiquette.Opts{
-		Font:   ft,
-		Height: etiquette.Px(heightPx),
-		DPI:    status.MediaWidth.DPI(),
-	})
-	if err != nil {
-		return err
+	var imgs []image.PalettedImage
+	scanner := bufio.NewScanner(labels)
+	for scanner.Scan() {
+		img, err := etiquette.Render(scanner.Text(), etiquette.Opts{
+			Font:   ft,
+			Height: etiquette.Px(heightPx),
+			DPI:    status.MediaWidth.DPI(),
+		})
+		if err != nil {
+			return err
+		}
+
+		imgs = append(imgs, otsu.Otsu(img))
 	}
 
-	monochrome := otsu.Otsu(img)
-
-	return printer.Print(monochrome)
+	return printer.Print(imgs...)
 }

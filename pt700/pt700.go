@@ -46,7 +46,7 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 		return err
 	}
 
-	px, err := status.Width.Px()
+	px, err := status.MediaWidth.Px()
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 		// TODO - check color model too! Need to iterate over it, and check it's only White or Black.
 
 		if gotPx := Px(img.Bounds().Dy()); gotPx != px {
-			return fmt.Errorf("printer has %v tape, expected %dpx img but got %dpx", status.Width, px, gotPx)
+			return fmt.Errorf("printer has %v tape, expected %dpx img but got %dpx", status.MediaWidth, px, gotPx)
 		}
 	}
 
@@ -69,7 +69,7 @@ func (p PT700) Print(imgs ...image.PalettedImage) error {
 			pos = pos | last
 		}
 
-		if err := p.printPage(status.Width, pos, img); err != nil {
+		if err := p.printPage(status.MediaWidth, pos, img); err != nil {
 			return fmt.Errorf("printing page %d: %w", i, err)
 		}
 	}
@@ -246,10 +246,11 @@ func (p PT700) readStatus() (Status, error) {
 	}
 
 	return Status{
-		Err1:  Error1(resp[8]),
-		Err2:  Error2(resp[9]),
-		Width: MediaWidth(resp[10]),
-		Type:  MediaType(resp[11]),
+		Err1:       Error1(resp[8]),
+		Err2:       Error2(resp[9]),
+		MediaWidth: MediaWidth(resp[10]),
+		MediaType:  MediaType(resp[11]),
+		Type:       StatusType(resp[18]),
 	}, nil
 }
 

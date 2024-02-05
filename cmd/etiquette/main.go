@@ -34,7 +34,7 @@ func print(printerPath string, text string) error {
 		return err
 	}
 
-	heightPx, err := status.Width.Px()
+	heightPx, err := status.MediaWidth.Px()
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func print(printerPath string, text string) error {
 	img, err := etiquette.Render(text, etiquette.Opts{
 		Font:   ft,
 		Height: etiquette.Px(heightPx),
-		DPI:    status.Width.DPI(),
+		DPI:    status.MediaWidth.DPI(),
 	})
 	if err != nil {
 		return err

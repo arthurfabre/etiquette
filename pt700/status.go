@@ -6,10 +6,11 @@ import (
 )
 
 type Status struct {
-	Err1  Error1
-	Err2  Error2
-	Width MediaWidth
-	Type  MediaType
+	Err1       Error1
+	Err2       Error2
+	MediaWidth MediaWidth
+	MediaType  MediaType
+	Type       StatusType
 }
 
 // Err returns an error representing this status, or nil if there is no error.
@@ -187,5 +188,38 @@ func (t MediaType) String() string {
 		return "Incompatible"
 	default:
 		return fmt.Sprintf("Unknown(0x%x)", byte(t))
+	}
+}
+
+type StatusType uint8
+
+const (
+	StatusReplyToRequest StatusType = iota
+	StatusPrintingCompleted
+	StatusErrorOccurred
+	StatusExitIFMode
+	StatusTurnedOff
+	StatusNotification
+	StatusPhaseChange
+)
+
+func (t StatusType) String() string {
+	switch t {
+	case StatusReplyToRequest:
+		return "ReplyToStatusRequest"
+	case StatusPrintingCompleted:
+		return "PrintingCompleted"
+	case StatusErrorOccurred:
+		return "StatusErrorOccurred"
+	case StatusExitIFMode:
+		return "StatusExitIFMode"
+	case StatusTurnedOff:
+		return "StatusTurnedOff"
+	case StatusNotification:
+		return "StatusNotification"
+	case StatusPhaseChange:
+		return "StatusPhaseChange"
+	default:
+		return fmt.Sprintf("Unknown(0x%x)", uint8(t))
 	}
 }

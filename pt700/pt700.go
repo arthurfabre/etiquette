@@ -163,7 +163,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	}
 
 	// Raster data.
-	if err := p.printRaster(img); err != nil {
+	if err := p.printRaster(width, img); err != nil {
 		return fmt.Errorf("raster: %w", err)
 	}
 
@@ -187,11 +187,11 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	return nil
 }
 
-func (p PT700) printRaster(img image.PalettedImage) error {
+func (p PT700) printRaster(width MediaWidth, img image.PalettedImage) error {
 	// Without compression no need to specify data for unused pins
 	// but I think we need to specify the width offset?
 	for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
-		if err := p.printLine(img, x); err != nil {
+		if err := p.printLine(width, img, x); err != nil {
 			return err
 		}
 	}
@@ -199,7 +199,7 @@ func (p PT700) printRaster(img image.PalettedImage) error {
 	return nil
 }
 
-func (p PT700) printLine(img image.PalettedImage, x int) error {
+func (p PT700) printLine(width MediaWidth, img image.PalettedImage, x int) error {
 	black := uint8(0)
 	if img.ColorModel().(color.Palette)[0] == color.White {
 		black = 1
@@ -207,10 +207,11 @@ func (p PT700) printLine(img image.PalettedImage, x int) error {
 
 	line := make([]byte, 16)
 
-	px := 0
-
-	// Add the width offset.
-	px += 48 // Actually this is the margin!
+	// Only the middle pins are used for printing, offset everything.
+	px, err := width.Margin()
+	if err != nil {
+		return err
+	}
 
 	// Send the whole vertical line.
 	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {

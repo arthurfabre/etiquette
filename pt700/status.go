@@ -141,6 +141,15 @@ func (w MediaWidth) Px() (Px, error) {
 	}
 }
 
+func (w MediaWidth) Margin() (Px, error) {
+	wPx, err := w.Px()
+	if err != nil {
+		return 0, err
+	}
+
+	return (128 - wPx) / 2, nil
+}
+
 func (w MediaWidth) MinLength() Px {
 	// Brother PDF 2.3.3 (I think, later it says 24.5mm..)
 	return 172

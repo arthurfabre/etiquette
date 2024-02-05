@@ -152,9 +152,11 @@ func (w MediaWidth) Margin() (Px, error) {
 	return (128 - wPx) / 2, nil
 }
 
-func (w MediaWidth) MinLength() Px {
+// MinLength is the length of the printable area of the smallest label
+// the machine will produce (with the set left/right margins).
+func (w MediaWidth) MinLength(margin Px) Px {
 	// Brother PDF 2.3.3 (I think, later it says 24.5mm..)
-	return 172
+	return 172 - 2*margin
 }
 
 func (w MediaWidth) DPI() int {

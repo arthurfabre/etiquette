@@ -117,6 +117,10 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 		}
 	}
 
+	margin := Px(14) // 2mm margins (14 dots). Minimum according to manual 2.3.3.
+
+	lengthPadding := minLengthPadding(width, margin, img)
+
 	// Control codes (Brother PDF 2.1.2).
 	// Raster mode.
 	if err := p.write([]byte{0x1B, 0x69, 0x61, 0x01}); err != nil {
@@ -134,8 +138,8 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 		byte(width), // Media width mm.
 		0x00,        // Media length mm, we don't request validation.
 	}
-	// Number of raster lines (length of the label / width of the image).
-	info = binary.LittleEndian.AppendUint32(info, uint32(img.Bounds().Dx()))
+	// Number of raster lines (length of the label with padding).
+	info = binary.LittleEndian.AppendUint32(info, uint32(lengthPadding)+uint32(img.Bounds().Dx()))
 	// Starting page or not.
 	if pos&first != 0 {
 		info = append(info, 0x00)
@@ -169,11 +173,9 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	}
 
 	// Margin.
-	if err := p.write([]byte{
+	if err := p.write(binary.LittleEndian.AppendUint16([]byte{
 		0x1B, 0x69, 0x64,
-		// 2mm margins (14 dots). Minimum according to manual 2.3.3.
-		0x0E, 0x00,
-	}); err != nil {
+	}, uint16(margin))); err != nil {
 		return fmt.Errorf("margins: %w", err)
 	}
 
@@ -187,7 +189,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	}
 
 	// Raster data.
-	if err := p.printRaster(width, img); err != nil {
+	if err := p.printRaster(width, lengthPadding, img); err != nil {
 		return fmt.Errorf("raster: %w", err)
 	}
 
@@ -218,11 +220,24 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	return err
 }
 
-func (p PT700) printRaster(width MediaWidth, img image.PalettedImage) error {
-	// Without compression no need to specify data for unused pins
-	// but I think we need to specify the width offset?
+// minLengthPadding returns the number of empty raster lines needed to center
+// an image narrower than the printer's minimum printable length.
+func minLengthPadding(width MediaWidth, margin Px, img image.PalettedImage) Px {
+	if pad := (width.MinLength(margin) - Px(img.Bounds().Dx())) / 2; pad > 0 {
+		return pad
+	}
+	return 0
+}
+
+func (p PT700) printRaster(width MediaWidth, lengthPadding Px, img image.PalettedImage) error {
+	for i := Px(0); i < lengthPadding; i++ {
+		if err := p.emptyLine(); err != nil {
+			return err
+		}
+	}
+
 	for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
-		if err := p.printLine(width, img, x); err != nil {
+		if err := p.rasterLine(width, img, x); err != nil {
 			return err
 		}
 	}
@@ -230,7 +245,11 @@ func (p PT700) printRaster(width MediaWidth, img image.PalettedImage) error {
 	return nil
 }
 
-func (p PT700) printLine(width MediaWidth, img image.PalettedImage, x int) error {
+func (p PT700) emptyLine() error {
+	return p.printLine(make([]byte, 16))
+}
+
+func (p PT700) rasterLine(width MediaWidth, img image.PalettedImage, x int) error {
 	black := uint8(0)
 	if img.ColorModel().(color.Palette)[0] == color.White {
 		black = 1
@@ -256,6 +275,10 @@ func (p PT700) printLine(width MediaWidth, img image.PalettedImage, x int) error
 		px++
 	}
 
+	return p.printLine(line)
+}
+
+func (p PT700) printLine(line []byte) error {
 	// Manual says 0x67! But that doesn't work, and the example
 	// in 2.2.3 uses 0x47.
 	return p.write(append([]byte{0x47, 16, 0}, line...))

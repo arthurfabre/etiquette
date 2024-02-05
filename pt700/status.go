@@ -11,6 +11,7 @@ type Status struct {
 	MediaWidth MediaWidth
 	MediaType  MediaType
 	Type       StatusType
+	Phase      PhaseType
 }
 
 // Err returns an error representing this status, or nil if there is no error.
@@ -221,5 +222,23 @@ func (t StatusType) String() string {
 		return "StatusPhaseChange"
 	default:
 		return fmt.Sprintf("Unknown(0x%x)", uint8(t))
+	}
+}
+
+type PhaseType uint8
+
+const (
+	PhaseEditing PhaseType = iota
+	PhasePrinting
+)
+
+func (p PhaseType) String() string {
+	switch p {
+	case PhaseEditing:
+		return "Editing"
+	case PhasePrinting:
+		return "Printing"
+	default:
+		return fmt.Sprintf("PhaseType(0x%x)", uint8(p))
 	}
 }

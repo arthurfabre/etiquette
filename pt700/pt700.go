@@ -97,6 +97,13 @@ const (
 )
 
 func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage) error {
+	// Not the first page? Wait for "Waiting to receive"
+	if pos&first == 0 {
+		if _, err := p.readStatus(StatusPhaseChange); err != nil {
+			return err
+		}
+	}
+
 	// Control codes (Brother PDF 2.1.2).
 	// Raster mode.
 	if err := p.write([]byte{0x1B, 0x69, 0x61, 0x01}); err != nil {
@@ -181,14 +188,21 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 		return fmt.Errorf("print: %w", err)
 	}
 
-	// Read status x2? Or maybe x3?
-	s, err := p.readStatus()
-	if err != nil {
+	// First "Printing".
+	if _, err := p.readStatus(StatusPhaseChange); err != nil {
 		return err
 	}
-	fmt.Println(s)
 
-	return nil
+	if pos&last != 0 {
+		// "Feeding".
+		if _, err := p.readStatus(StatusPhaseChange); err != nil {
+			return err
+		}
+	}
+
+	// Finally "Printing completed".
+	_, err := p.readStatus(StatusPrintingCompleted)
+	return err
 }
 
 func (p PT700) printRaster(width MediaWidth, img image.PalettedImage) error {
@@ -248,22 +262,28 @@ func (p PT700) status() (Status, error) {
 		return Status{}, fmt.Errorf("status write: %w", err)
 	}
 
-	return p.readStatus()
+	return p.readStatus(StatusReplyToRequest)
 }
 
-func (p PT700) readStatus() (Status, error) {
+func (p PT700) readStatus(expectedType StatusType) (Status, error) {
 	resp := make([]byte, 32)
 	if err := p.read(resp, time.Second*10); err != nil {
 		return Status{}, fmt.Errorf("status read: %w", err)
 	}
 
-	return Status{
+	s := Status{
 		Err1:       Error1(resp[8]),
 		Err2:       Error2(resp[9]),
 		MediaWidth: MediaWidth(resp[10]),
 		MediaType:  MediaType(resp[11]),
 		Type:       StatusType(resp[18]),
-	}, nil
+		Phase:      PhaseType(resp[19]),
+	}
+
+	if s.Type != expectedType {
+		return Status{}, fmt.Errorf("expected status type %v got %+v", expectedType, s)
+	}
+	return s, nil
 }
 
 func (p PT700) write(b []byte) error {

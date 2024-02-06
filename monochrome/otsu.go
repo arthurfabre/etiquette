@@ -1,33 +1,41 @@
-package otsu
+package monochrome
 
 import (
 	"image"
 	"image/color"
+	"image/draw"
 )
 
-// Otsu converts a grayscale image to monochrome with Otsu thresholding.
+// From converts an image to monochrome with Otsu thresholding.
 // https://en.wikipedia.org/wiki/Otsu%27s_method
-// Returns a PalettedImage with Black and White only, which some encoders (like
-// png) treat specially and encode as a 1bit image.
-func Otsu(i *image.Gray) image.PalettedImage {
-	threshold := threshold(i)
+func From(img image.Image) *Image {
+	// First get a grayscale image.
+	var gray *image.Gray
+	switch i := img.(type) {
+	case *Image:
+		return i
+	case *image.Gray:
+		gray = i
+	default:
+		gray = image.NewGray(img.Bounds())
+		draw.Draw(gray, gray.Bounds(), img, img.Bounds().Min, draw.Src)
+	}
 
-	dst := image.NewPaletted(i.Bounds(), color.Palette{color.Black, color.White})
+	// Then figure out the threshold and turn it into monochrome
+	threshold := otsuThreshold(gray)
 
-	for x := i.Bounds().Min.X; x < i.Bounds().Max.X; x++ {
-		for y := i.Bounds().Min.Y; y < i.Bounds().Max.Y; y++ {
-			if i.At(x, y).(color.Gray).Y > threshold {
-				dst.SetColorIndex(x, y, 1)
-			} else {
-				dst.SetColorIndex(x, y, 0)
-			}
+	mono := New(gray.Bounds())
+
+	for x := gray.Bounds().Min.X; x < gray.Bounds().Max.X; x++ {
+		for y := gray.Bounds().Min.Y; y < gray.Bounds().Max.Y; y++ {
+			mono.SetBlack(x, y, gray.GrayAt(x, y).Y > threshold)
 		}
 	}
 
-	return dst
+	return mono
 }
 
-func threshold(i *image.Gray) uint8 {
+func otsuThreshold(i *image.Gray) uint8 {
 	histo := intensityHistogram(i)
 
 	totalPixels := i.Bounds().Dx() * i.Bounds().Dy()

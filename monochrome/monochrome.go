@@ -20,7 +20,7 @@ type Image struct {
 // handle PalettedImages with two colors and encode them as 1 bit images.
 var _ image.PalettedImage = &Image{}
 
-func NewMonochrome(r image.Rectangle) *Image {
+func New(r image.Rectangle) *Image {
 	return &Image{
 		p: image.NewPaletted(r, Model()),
 	}
@@ -44,4 +44,12 @@ func (m *Image) ColorIndexAt(x, y int) uint8 {
 
 func (m *Image) BlackAt(x, y int) bool {
 	return m.p.ColorIndexAt(x, y) == 1
+}
+
+func (m *Image) SetBlack(x, y int, isBlack bool) {
+	if isBlack {
+		m.p.SetColorIndex(x, y, 1)
+	} else {
+		m.p.SetColorIndex(x, y, 0)
+	}
 }

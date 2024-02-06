@@ -4,13 +4,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"image"
-	"image/color"
 	"math"
 	"os"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"go.afab.re/etiquette/monochrome"
 )
 
 // PT700 controls a Brother PT-700 label printer on Linux through the usblp driver.
@@ -24,7 +24,7 @@ func Open(path string) (PT700, error) {
 
 // Print the images as pages of one job so the ~24.5mm of blank start tape is only needed once.
 // The images will be individually cut.
-func (p PT700) Print(imgs ...image.PalettedImage) error {
+func (p PT700) Print(imgs ...*monochrome.Image) error {
 	if err := p.reset(); err != nil {
 		return err
 	}
@@ -76,23 +76,18 @@ func (p PT700) reset() error {
 	return readUntilEOF(int(p))
 }
 
-func checkImgs(width MediaWidth, imgs ...image.PalettedImage) error {
-	px, err := width.Px()
+func checkImgs(width MediaWidth, imgs ...*monochrome.Image) error {
+	mBounds, err := width.MinBounds()
 	if err != nil {
 		return err
 	}
 
 	for _, img := range imgs {
-		if gotPx := Px(img.Bounds().Dy()); gotPx != px {
-			return fmt.Errorf("printer has %v tape, expected %dpx img but got %dpx", width, px, gotPx)
+		if img.Bounds().Dy() != mBounds.Dy() {
+			return fmt.Errorf("printer has %v tape, expected %dpx wide image but got %dx", width, mBounds.Dy(), img.Bounds().Dy())
 		}
-
-		plt := img.ColorModel().(color.Palette)
-		switch {
-		case len(plt) != 2:
-			return fmt.Errorf("image isn't monochrome")
-		case !((plt[0] == color.White && plt[1] == color.Black) || (plt[0] == color.Black && plt[1] == color.White)):
-			return fmt.Errorf("image isn't black and white")
+		if img.Bounds().Dx() < mBounds.Dx() {
+			return fmt.Errorf("printer can't print images shorter than %dpx, got %dpx", mBounds.Dx(), img.Bounds().Dy())
 		}
 	}
 
@@ -109,17 +104,13 @@ const (
 	last
 )
 
-func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage) error {
+func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) error {
 	// Not the first page? Wait for "Waiting to receive"
 	if pos&first == 0 {
 		if _, err := p.readStatus(StatusPhaseChange); err != nil {
 			return err
 		}
 	}
-
-	margin := Px(14) // 2mm margins (14 dots). Minimum according to manual 2.3.3.
-
-	lengthPadding := minLengthPadding(width, margin, img)
 
 	// Control codes (Brother PDF 2.1.2).
 	// Raster mode.
@@ -138,8 +129,8 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 		byte(width), // Media width mm.
 		0x00,        // Media length mm, we don't request validation.
 	}
-	// Number of raster lines (length of the label with padding).
-	info = binary.LittleEndian.AppendUint32(info, uint32(lengthPadding)+uint32(img.Bounds().Dx()))
+	// Number of raster lines (height of image).
+	info = binary.LittleEndian.AppendUint32(info, uint32(img.Bounds().Dy()))
 	// Starting page or not.
 	if pos&first != 0 {
 		info = append(info, 0x00)
@@ -173,9 +164,11 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	}
 
 	// Margin.
-	if err := p.write(binary.LittleEndian.AppendUint16([]byte{
-		0x1B, 0x69, 0x64,
-	}, uint16(margin))); err != nil {
+	if err := p.write([]byte{
+		// Manual says min 2mm margins (14 dots) in 2.3.3. But 0 seems to work fine.
+		// Lets the caller deal with margins themselves.
+		0x1B, 0x69, 0x64, 0x00, 0x00,
+	}); err != nil {
 		return fmt.Errorf("margins: %w", err)
 	}
 
@@ -189,7 +182,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	}
 
 	// Raster data.
-	if err := p.printRaster(width, lengthPadding, img); err != nil {
+	if err := p.printRaster(width, img); err != nil {
 		return fmt.Errorf("raster: %w", err)
 	}
 
@@ -220,24 +213,9 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img image.PalettedImage)
 	return err
 }
 
-// minLengthPadding returns the number of empty raster lines needed to center
-// an image narrower than the printer's minimum printable length.
-func minLengthPadding(width MediaWidth, margin Px, img image.PalettedImage) Px {
-	if pad := (int(width.MinLength(margin)) - img.Bounds().Dx()) / 2; pad > 0 {
-		return Px(pad)
-	}
-	return 0
-}
-
-func (p PT700) printRaster(width MediaWidth, lengthPadding Px, img image.PalettedImage) error {
-	for i := Px(0); i < lengthPadding; i++ {
-		if err := p.emptyLine(); err != nil {
-			return err
-		}
-	}
-
-	for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
-		if err := p.rasterLine(width, img, x); err != nil {
+func (p PT700) printRaster(width MediaWidth, img *monochrome.Image) error {
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		if err := p.rasterLine(width, img, y); err != nil {
 			return err
 		}
 	}
@@ -245,40 +223,28 @@ func (p PT700) printRaster(width MediaWidth, lengthPadding Px, img image.Palette
 	return nil
 }
 
-func (p PT700) emptyLine() error {
-	return p.printLine(make([]byte, 16))
-}
+func (p PT700) rasterLine(width MediaWidth, img *monochrome.Image, y int) error {
+	const totalPins = 128
 
-func (p PT700) rasterLine(width MediaWidth, img image.PalettedImage, x int) error {
-	black := uint8(0)
-	if img.ColorModel().(color.Palette)[0] == color.White {
-		black = 1
-	}
-
-	line := make([]byte, 16)
+	line := make([]byte, totalPins/8)
 
 	// Only the middle pins are used for printing, offset everything.
-	px, err := width.Margin()
+	pin, err := width.unusedPins(totalPins)
 	if err != nil {
 		return err
 	}
 
-	// Send the whole vertical line.
-	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
-		byt := px / 8
-		bit := px % 8
+	for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+		byt := pin / 8
+		bit := pin % 8
 
-		if img.ColorIndexAt(x, y) == black {
+		if img.BlackAt(x, y) {
 			line[byt] = line[byt] | (1<<7)>>bit
 		}
 
-		px++
+		pin++
 	}
 
-	return p.printLine(line)
-}
-
-func (p PT700) printLine(line []byte) error {
 	// Manual says 0x67! But that doesn't work, and the example
 	// in 2.2.3 uses 0x47.
 	return p.write(append([]byte{0x47, 16, 0}, line...))

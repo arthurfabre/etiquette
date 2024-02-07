@@ -18,12 +18,13 @@ type Bounds struct {
 	MinDy int
 }
 
-type Opts struct {
+type TextOpts struct {
 	DPI  int
 	Font *opentype.Font
 }
 
-func Render(b Bounds, text string, opts Opts) (*monochrome.Image, error) {
+// Text renders text as an image suitable for printing.
+func Text(b Bounds, text string, opts TextOpts) (*monochrome.Image, error) {
 	// We're going to rotate the label to print it landscape, it's height needs to match
 	// the width of the printer.
 	height := px(b.Dx)
@@ -73,7 +74,7 @@ func landscape(img *image.Gray) *image.Gray {
 type px int
 
 // Find the biggest font for a given height.
-func face(height px, opts Opts) (font.Face, error) {
+func face(height px, opts TextOpts) (font.Face, error) {
 	var best font.Face
 
 	for i := float64(1); ; i++ {
@@ -97,6 +98,8 @@ func face(height px, opts Opts) (font.Face, error) {
 func bounds(height px, face font.Face, text string) image.Rectangle {
 	m := face.Metrics()
 
+	margin := 7
+
 	// Margin to center the font vertically.
 	// (not the specific text - otherwise different labels will end up aligned differently).
 	yMin := -m.Ascent.Ceil()
@@ -111,7 +114,7 @@ func bounds(height px, face font.Face, text string) image.Rectangle {
 	// Combine font based vertical bounds, and text based horizontal bounds.
 	tBounds, _ := font.BoundString(face, text)
 	return image.Rect(
-		tBounds.Min.X.Floor(), yMin,
-		tBounds.Max.X.Ceil(), yMax,
+		tBounds.Min.X.Floor()-margin, yMin,
+		tBounds.Max.X.Ceil()+margin, yMax,
 	)
 }

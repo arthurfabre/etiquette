@@ -17,8 +17,12 @@ func From(img image.Image) *Image {
 	case *image.Gray:
 		gray = i
 	default:
+		// In case the image is transparent, overlay it over a white background to ensure
+		// transparent pixels are converted to white(ish).
+		// Otherwise black transparent pixels (RGBA(0,0,0,0) end up black when converted to image.Gray.
 		gray = image.NewGray(img.Bounds())
-		draw.Draw(gray, gray.Bounds(), img, img.Bounds().Min, draw.Src)
+		draw.Draw(gray, gray.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
+		draw.Draw(gray, gray.Bounds(), img, img.Bounds().Min, draw.Over)
 	}
 
 	// Then figure out the threshold and turn it into monochrome

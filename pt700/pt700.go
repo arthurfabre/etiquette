@@ -215,7 +215,8 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) e
 }
 
 func (p PT700) printRaster(width MediaWidth, img *monochrome.Image) error {
-	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+	// Print bottom line first.
+	for y := img.Bounds().Max.Y; y > img.Bounds().Min.Y; y-- {
 		if err := p.rasterLine(width, img, y); err != nil {
 			return err
 		}

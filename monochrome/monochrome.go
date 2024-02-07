@@ -38,6 +38,10 @@ func (m *Image) At(x, y int) color.Color {
 	return m.p.At(x, y)
 }
 
+func (m *Image) Set(x, y int, c color.Color) {
+	m.p.Set(x, y, c)
+}
+
 func (m *Image) ColorIndexAt(x, y int) uint8 {
 	return m.p.ColorIndexAt(x, y)
 }

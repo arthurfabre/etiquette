@@ -28,7 +28,7 @@ func From(img image.Image) *Image {
 
 	for x := gray.Bounds().Min.X; x < gray.Bounds().Max.X; x++ {
 		for y := gray.Bounds().Min.Y; y < gray.Bounds().Max.Y; y++ {
-			mono.SetBlack(x, y, gray.GrayAt(x, y).Y > threshold)
+			mono.SetBlack(x, y, gray.GrayAt(x, y).Y <= threshold)
 		}
 	}
 

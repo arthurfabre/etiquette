@@ -60,7 +60,7 @@ func landscape(img *image.Gray) *image.Gray {
 				dst.Bounds().Min.X+x,
 				dst.Bounds().Min.Y+y,
 				img.At(
-					img.Bounds().Max.X-y,
+					img.Bounds().Max.X-1-y,
 					img.Bounds().Min.Y+x,
 				),
 			)

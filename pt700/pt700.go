@@ -77,17 +77,18 @@ func (p PT700) reset() error {
 }
 
 func checkImgs(width MediaWidth, imgs ...*monochrome.Image) error {
-	mBounds, err := width.MinBounds()
+	dx, err := width.Dx()
 	if err != nil {
 		return err
 	}
+	minDy := width.MinDy()
 
 	for _, img := range imgs {
-		if img.Bounds().Dy() != mBounds.Dy() {
-			return fmt.Errorf("printer has %v tape, expected %dpx wide image but got %dx", width, mBounds.Dy(), img.Bounds().Dy())
+		if img.Bounds().Dx() != dx {
+			return fmt.Errorf("printer has %v tape, expected %dpx wide image but got %dx", width, dx, img.Bounds().Dx())
 		}
-		if img.Bounds().Dx() < mBounds.Dx() {
-			return fmt.Errorf("printer can't print images shorter than %dpx, got %dpx", mBounds.Dx(), img.Bounds().Dy())
+		if img.Bounds().Dy() < minDy {
+			return fmt.Errorf("printer can't print images shorter than %dpx, got %dpx", minDy, img.Bounds().Dy())
 		}
 	}
 

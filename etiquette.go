@@ -7,23 +7,33 @@ import (
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
+
+	"go.afab.re/etiquette/monochrome"
 )
 
-type Px int
-
-type Opts struct {
-	Height Px
-	DPI    int
-	Font   *opentype.Font
+type Bounds struct {
+	// Dx is the exact width the image must be, in pixels.
+	Dx int
+	// Dy is the minimum height of the image, in pixels.
+	MinDy int
 }
 
-func Render(text string, opts Opts) (*image.Gray, error) {
-	face, err := face(opts)
+type Opts struct {
+	DPI  int
+	Font *opentype.Font
+}
+
+func Render(b Bounds, text string, opts Opts) (*monochrome.Image, error) {
+	// We're going to rotate the label to print it landscape, it's height needs to match
+	// the width of the printer.
+	height := px(b.Dx)
+
+	face, err := face(height, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	dst := image.NewGray(bounds(opts.Height, face, text))
+	dst := image.NewGray(bounds(height, face, text))
 	draw.Draw(dst, dst.Bounds(), &image.Uniform{color.White}, image.Point{}, draw.Src)
 
 	d := font.Drawer{
@@ -33,11 +43,37 @@ func Render(text string, opts Opts) (*image.Gray, error) {
 	}
 	d.DrawString(text)
 
-	return dst, nil
+	return Image(b, landscape(dst))
 }
 
+// Rotate image 90° clockwise.
+func landscape(img *image.Gray) *image.Gray {
+	dst := image.NewGray(image.Rect(
+		img.Bounds().Min.Y, img.Bounds().Min.X,
+		img.Bounds().Max.Y, img.Bounds().Max.X,
+	))
+
+	// Use bounds of each img independently in case Min was not (0, 0).
+	for x := 0; x < dst.Bounds().Dx(); x++ {
+		for y := 0; y < dst.Bounds().Dy(); y++ {
+			dst.Set(
+				dst.Bounds().Min.X+x,
+				dst.Bounds().Min.Y+y,
+				img.At(
+					img.Bounds().Max.X-y,
+					img.Bounds().Min.Y+x,
+				),
+			)
+		}
+	}
+
+	return dst
+}
+
+type px int
+
 // Find the biggest font for a given height.
-func face(opts Opts) (font.Face, error) {
+func face(height px, opts Opts) (font.Face, error) {
 	var best font.Face
 
 	for i := float64(1); ; i++ {
@@ -50,7 +86,7 @@ func face(opts Opts) (font.Face, error) {
 			return nil, err
 		}
 
-		if face.Metrics().Height.Ceil() > int(opts.Height) {
+		if face.Metrics().Height.Ceil() > int(height) {
 			return best, nil
 		}
 
@@ -58,7 +94,7 @@ func face(opts Opts) (font.Face, error) {
 	}
 }
 
-func bounds(height Px, face font.Face, text string) image.Rectangle {
+func bounds(height px, face font.Face, text string) image.Rectangle {
 	m := face.Metrics()
 
 	// Margin to center the font vertically.

@@ -2,7 +2,6 @@ package pt700
 
 import (
 	"fmt"
-	"image"
 	"strings"
 )
 
@@ -123,7 +122,8 @@ func (w MediaWidth) String() string {
 	}
 }
 
-func (w MediaWidth) pixels() (int, error) {
+// Dx returns the exact width of images that can be printed, in pixels.
+func (w MediaWidth) Dx() (int, error) {
 	switch w {
 	case Width3_5:
 		return 24, nil
@@ -142,25 +142,16 @@ func (w MediaWidth) pixels() (int, error) {
 	}
 }
 
-// The smallest image that can be printed (assuming no margins).
-// Longer (.Dx()) images can be printed, but not wider (.Dy()) images.
-func (w MediaWidth) MinBounds() (image.Rectangle, error) {
-	width, err := w.pixels()
-	if err != nil {
-		return image.Rectangle{}, nil
-	}
-
-	return image.Rectangle{
-		image.Point{0, 0},
-		// Brother PDF 2.3.3 (I think, later it says 24.5mm..)
-		image.Point{172, width},
-	}, nil
+// Dy returns the minimum height of images that can be printed, in pixels.
+func (w MediaWidth) MinDy() int {
+	// Brother PDF 2.3.3 (I think, later it says 24.5mm..)
+	return 172
 }
 
 // PTouch printers expect full width data even with narrow media.
 // Software has to explicitly skip pins outside of the print area.
 func (w MediaWidth) unusedPins(printerPins int) (int, error) {
-	width, err := w.pixels()
+	width, err := w.Dx()
 	if err != nil {
 		return 0, err
 	}

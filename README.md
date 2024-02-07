@@ -3,15 +3,34 @@
 Print labels on a Brother P-touch P700 printer from the command line, without any special drivers.
 
 ```
-echo -e "Label 1\nLabel2" | etiquette /dev/usb/lpN
+echo "Label" | etiquette /dev/usb/lpN
 ```
 
 ## Features
 
 * Print a list of newline delimited labels from stdin as one job,
-only wasting the ~25mm of feed tape once per job.
+only wasting the ~25mm of feed tape once per job:
+
+    ```
+    echo -e "Label 1\nLabel 2" | etiquette /dev/usb/lpN
+    ```
+
+    (Make sure to remove labels as they feed out, otherwise small ones can pile up and slow down the printer,
+    offsetting the text on the next labels.)
 
 * Detect tape size loaded into printer, and automatically pick corresponding font size.
+
+* Print pre-rendered images, for example QR codes:
+
+    ```
+    qrencode --symversion=3 --strict-version --size 4 --margin 1 -o- "http://go.afab.re/etiquette" | etiquette -img /dev/usb/lpN
+    ```
+
+* Preview the output as a PNG:
+
+    ```
+    echo "Label" | ./etiquette -preview label.png /dev/usb/lpN
+    ```
 
 ## Requirements
 

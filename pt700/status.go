@@ -159,11 +159,6 @@ func (w MediaWidth) unusedPins(printerPins int) (int, error) {
 	return (128 - width) / 2, nil
 }
 
-func (w MediaWidth) DPI() int {
-	// Brother PDF 2.3.4
-	return 180
-}
-
 type MediaType byte
 
 const (

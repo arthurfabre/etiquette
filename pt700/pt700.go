@@ -10,8 +10,25 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"go.afab.re/etiquette"
 	"go.afab.re/etiquette/monochrome"
 )
+
+const (
+	vendorID  = 0x04F9
+	productID = 0x2061
+)
+
+func init() {
+	etiquette.RegisterPrinter(vendorID, productID, func(path string) (etiquette.Printer, error) {
+		var (
+			p   etiquette.Printer
+			err error
+		)
+		p, err = Open(path)
+		return p, err
+	})
+}
 
 // PT700 controls a Brother PT-700 label printer on Linux through the usblp driver.
 type PT700 int // We have to poll() to read responses, it's easier to use a raw FD.
@@ -252,7 +269,29 @@ func (p PT700) rasterLine(width MediaWidth, img *monochrome.Image, y int) error 
 	return p.write(append([]byte{0x47, 16, 0}, line...))
 }
 
-func (p PT700) Status() (Status, error) {
+func (p PT700) Info() (etiquette.PrinterInfo, error) {
+	status, err := p.Status()
+	if err != nil {
+		return etiquette.PrinterInfo{}, err
+	}
+
+	dx, err := status.MediaWidth.Dx()
+	if err != nil {
+		return etiquette.PrinterInfo{}, err
+	}
+
+	return etiquette.PrinterInfo{
+		MediaName: status.MediaWidth.String(),
+		Bounds: etiquette.Bounds{
+			Dx:    dx,
+			MinDy: status.MediaWidth.MinDy(),
+		},
+		// Brother PDF 2.3.4
+		DPI: 180,
+	}, nil
+}
+
+func (p *PT700) Status() (Status, error) {
 	if err := p.reset(); err != nil {
 		return Status{}, err
 	}

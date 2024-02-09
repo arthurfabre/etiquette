@@ -11,12 +11,13 @@ import (
 	"io"
 	"os"
 
+	"golang.org/x/exp/maps"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 
 	"go.afab.re/etiquette"
 	"go.afab.re/etiquette/monochrome"
-	"go.afab.re/etiquette/pt700"
+	_ "go.afab.re/etiquette/pt700"
 )
 
 func main() {
@@ -30,21 +31,25 @@ Print each line from stdin as a text label on a Brother PT-700 printer connected
 	}
 
 	var (
-		status  = flag.Bool("status", false, "Show printer status only, don't print anything.")
+		media   = flag.Bool("media", false, "Show media loaded in printer only, don't print.")
 		img     = flag.Bool("img", false, "Print an image (PNG/GIF/JPEG) from stdin instead of text.")
-		preview = flag.String("preview", "", "Preview the print as a PNG image written to filename.")
+		preview = flag.String("preview", "", "Preview the print as a PNG image written to filename, don't print.")
+		printer = flag.String("printer", "", "Path to the printer of the form /dev/usb/lpN.")
+		list    = flag.Bool("list", false, "List connected supported printers only, don't print.")
 	)
 	flag.Parse()
 
-	if flag.NArg() != 1 {
+	if flag.NArg() != 0 {
 		flag.Usage()
 		os.Exit(-1)
 	}
 
-	if err := print(flag.Arg(0), os.Stdin, flags{
-		status:  *status,
+	if err := print(os.Stdin, flags{
+		media:   *media,
 		img:     *img,
 		preview: *preview,
+		printer: *printer,
+		list:    *list,
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(-1)
@@ -52,45 +57,61 @@ Print each line from stdin as a text label on a Brother PT-700 printer connected
 }
 
 type flags struct {
-	status  bool
+	media   bool
 	img     bool
 	preview string
+	printer string
+	list    bool
 }
 
-func print(printerPath string, labels io.Reader, flags flags) error {
-	printer, err := pt700.Open(printerPath)
-	if err != nil {
-		return err
+func print(labels io.Reader, flags flags) error {
+	var printer etiquette.Printer
+	switch {
+	case flags.printer == "", flags.list:
+		printers, err := etiquette.Printers()
+		if err != nil {
+			return err
+		}
+
+		if flags.list {
+			fmt.Println(maps.Keys(printers))
+			return nil
+		}
+
+		if len(printers) == 0 {
+			return fmt.Errorf("no supported printers found")
+		}
+
+		if len(printers) != 1 {
+			// TODO - close all printers?
+			return fmt.Errorf("more than one printer found, select one with -printer: %v", maps.Keys(printers))
+		}
+		for _, p := range printers {
+			printer = p
+		}
+	default:
+		var err error
+		printer, err = etiquette.OpenPrinter(flags.printer)
+		if err != nil {
+			return err
+		}
 	}
 	defer printer.Close()
 
-	status, err := printer.Status()
+	info, err := printer.Info()
 	if err != nil {
 		return err
 	}
-	if flags.status {
-		fmt.Printf("%+v\n", status)
+	if flags.media {
+		fmt.Println(info.MediaName)
 		return nil
-	}
-
-	if err := status.Err(); err != nil {
-		return err
-	}
-
-	dx, err := status.MediaWidth.Dx()
-	if err != nil {
-		return err
-	}
-	bounds := etiquette.Bounds{
-		Dx:    dx,
-		MinDy: status.MediaWidth.MinDy(),
 	}
 
 	var imgs []*monochrome.Image
 	if flags.img {
-		imgs, err = img(bounds, labels)
+		imgs, err = img(info, labels)
 	} else {
-		imgs, err = text(bounds, status.MediaWidth.DPI(), labels)
+		imgs, err = text(info, labels)
 	}
 	if err != nil {
 		return err
@@ -112,13 +133,13 @@ func print(printerPath string, labels io.Reader, flags flags) error {
 	return printer.Print(imgs...)
 }
 
-func img(b etiquette.Bounds, labels io.Reader) ([]*monochrome.Image, error) {
+func img(info etiquette.PrinterInfo, labels io.Reader) ([]*monochrome.Image, error) {
 	img, _, err := image.Decode(labels)
 	if err != nil {
 		return nil, err
 	}
 
-	mono, err := etiquette.Image(b, img)
+	mono, err := etiquette.Image(info.Bounds, img)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +147,7 @@ func img(b etiquette.Bounds, labels io.Reader) ([]*monochrome.Image, error) {
 	return []*monochrome.Image{mono}, nil
 }
 
-func text(b etiquette.Bounds, dpi int, labels io.Reader) ([]*monochrome.Image, error) {
+func text(info etiquette.PrinterInfo, labels io.Reader) ([]*monochrome.Image, error) {
 	ft, err := opentype.Parse(goregular.TTF)
 	if err != nil {
 		return nil, err
@@ -136,9 +157,9 @@ func text(b etiquette.Bounds, dpi int, labels io.Reader) ([]*monochrome.Image, e
 
 	scanner := bufio.NewScanner(labels)
 	for scanner.Scan() {
-		img, err := etiquette.Text(b, scanner.Text(), etiquette.TextOpts{
+		img, err := etiquette.Text(info.Bounds, scanner.Text(), etiquette.TextOpts{
 			Font: ft,
-			DPI:  dpi,
+			DPI:  info.DPI,
 		})
 		if err != nil {
 			return nil, err
@@ -148,4 +169,9 @@ func text(b etiquette.Bounds, dpi int, labels io.Reader) ([]*monochrome.Image, e
 	}
 
 	return imgs, nil
+}
+
+func printPrinters(w io.Writer, printers map[string]etiquette.Printer) error {
+
+	return nil
 }

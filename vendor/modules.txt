@@ -1,3 +1,6 @@
+# golang.org/x/exp v0.0.0-20240205201215-2c58cdc269a3
+## explicit; go 1.20
+golang.org/x/exp/maps
 # golang.org/x/image v0.15.0
 ## explicit; go 1.18
 golang.org/x/image/font

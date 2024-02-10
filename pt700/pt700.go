@@ -2,41 +2,37 @@ package pt700
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"math"
-	"os"
 	"time"
-
-	"golang.org/x/sys/unix"
 
 	"go.afab.re/etiquette"
 	"go.afab.re/etiquette/monochrome"
-)
-
-const (
-	vendorID  = 0x04F9
-	productID = 0x2061
+	"go.afab.re/etiquette/usblp"
 )
 
 func init() {
-	etiquette.RegisterPrinter(vendorID, productID, func(path string) (etiquette.Printer, error) {
+	etiquette.RegisterPrinter(usblp.ID{
+		VendorID:  0x04F9,
+		ProductID: 0x2061,
+	}, func(d *usblp.Device) (etiquette.Printer, error) {
 		var (
 			p   etiquette.Printer
 			err error
 		)
-		p, err = Open(path)
+		p, err = Open(d)
 		return p, err
 	})
 }
 
 // PT700 controls a Brother PT-700 label printer on Linux through the usblp driver.
-type PT700 int // We have to poll() to read responses, it's easier to use a raw FD.
+type PT700 struct {
+	dev *usblp.Device
+}
 
-// Open opens a PT700 printer. Path should be of the form /dev/usb/lpN.
-func Open(path string) (PT700, error) {
-	fd, err := unix.Open(path, unix.O_RDWR, 0)
-	return PT700(fd), err
+func Open(dev *usblp.Device) (PT700, error) {
+	return PT700{
+		dev: dev,
+	}, nil
 }
 
 // Print the images as pages of one job so the ~24.5mm of blank start tape is only needed once.
@@ -47,7 +43,7 @@ func (p PT700) Print(imgs ...*monochrome.Image) error {
 	}
 
 	// Initialize. This seems to start the print job.
-	if err := p.write([]byte{0x1B, 0x40}); err != nil {
+	if err := p.dev.Write([]byte{0x1B, 0x40}); err != nil {
 		return fmt.Errorf("initialize: %w", err)
 	}
 
@@ -85,12 +81,12 @@ func (p PT700) Print(imgs ...*monochrome.Image) error {
 
 func (p PT700) reset() error {
 	// Invalidate. Brother docs 2.1.1 sends 100 bytes, so we do too.
-	if err := p.write(make([]byte, 100)); err != nil {
+	if err := p.dev.Write(make([]byte, 100)); err != nil {
 		return fmt.Errorf("invalidate: %w", err)
 	}
 
 	// Discard any leftover junk we or other programs didn't read.
-	return readUntilEOF(int(p))
+	return p.dev.Discard()
 }
 
 func checkImgs(width MediaWidth, imgs ...*monochrome.Image) error {
@@ -132,7 +128,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) e
 
 	// Control codes (Brother PDF 2.1.2).
 	// Raster mode.
-	if err := p.write([]byte{0x1B, 0x69, 0x61, 0x01}); err != nil {
+	if err := p.dev.Write([]byte{0x1B, 0x69, 0x61, 0x01}); err != nil {
 		return fmt.Errorf("enabling raster mode: %w", err)
 	}
 
@@ -157,12 +153,12 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) e
 	}
 	// n10: always 0.
 	info = append(info, 0x00)
-	if err := p.write(info); err != nil {
+	if err := p.dev.Write(info); err != nil {
 		return fmt.Errorf("print information: %w", err)
 	}
 
 	// Mode settings.
-	if err := p.write([]byte{
+	if err := p.dev.Write([]byte{
 		0x1B, 0x69, 0x4D,
 		// Enable auto cut.
 		0x40,
@@ -171,7 +167,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) e
 	}
 
 	// Advanced mode settings.
-	if err := p.write([]byte{
+	if err := p.dev.Write([]byte{
 		0x1B, 0x69, 0x4B,
 		// "Chain-printing" lets the printer print several jobs in a row,
 		// by not feeding out the label and cutting it for the last page.
@@ -182,7 +178,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) e
 	}
 
 	// Margin.
-	if err := p.write([]byte{
+	if err := p.dev.Write([]byte{
 		// Manual says min 2mm margins (14 dots) in 2.3.3. But 0 seems to work fine.
 		// Lets the caller deal with margins themselves.
 		0x1B, 0x69, 0x64, 0x00, 0x00,
@@ -191,7 +187,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) e
 	}
 
 	// Compression.
-	if err := p.write([]byte{
+	if err := p.dev.Write([]byte{
 		0x4D,
 		// No compression.
 		0x00,
@@ -210,7 +206,7 @@ func (p PT700) printPage(width MediaWidth, pos pagePos, img *monochrome.Image) e
 		// Print and feed.
 		printCmd = 0x1A
 	}
-	if err := p.write([]byte{printCmd}); err != nil {
+	if err := p.dev.Write([]byte{printCmd}); err != nil {
 		return fmt.Errorf("print: %w", err)
 	}
 
@@ -266,7 +262,7 @@ func (p PT700) rasterLine(width MediaWidth, img *monochrome.Image, y int) error 
 
 	// Manual says 0x67! But that doesn't work, and the example
 	// in 2.2.3 uses 0x47.
-	return p.write(append([]byte{0x47, 16, 0}, line...))
+	return p.dev.Write(append([]byte{0x47, 16, 0}, line...))
 }
 
 func (p PT700) Info() (etiquette.PrinterInfo, error) {
@@ -301,7 +297,7 @@ func (p *PT700) Status() (Status, error) {
 
 // Status() but without reset().
 func (p PT700) status() (Status, error) {
-	if err := p.write([]byte{0x1B, 0x69, 0x53}); err != nil {
+	if err := p.dev.Write([]byte{0x1B, 0x69, 0x53}); err != nil {
 		return Status{}, fmt.Errorf("status write: %w", err)
 	}
 
@@ -310,7 +306,7 @@ func (p PT700) status() (Status, error) {
 
 func (p PT700) readStatus(expectedType StatusType) (Status, error) {
 	resp := make([]byte, 32)
-	if err := p.read(resp, time.Second*10); err != nil {
+	if err := p.dev.Read(resp, time.Second*10); err != nil {
 		return Status{}, fmt.Errorf("status read: %w", err)
 	}
 
@@ -329,110 +325,6 @@ func (p PT700) readStatus(expectedType StatusType) (Status, error) {
 	return s, nil
 }
 
-func (p PT700) write(b []byte) error {
-	for wrote := 0; wrote != len(b); {
-		n, err := unix.Write(int(p), b[wrote:])
-		switch {
-		case errors.Is(unix.EINTR, err):
-			continue
-		case err != nil:
-			return fmt.Errorf("write: %w", err)
-		}
-
-		wrote += n
-	}
-
-	return nil
-}
-
-// io.ReadFull() but will poll().
-func (p PT700) read(buf []byte, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-
-	pollFds := []unix.PollFd{
-		{Fd: int32(p), Events: unix.POLLIN},
-	}
-
-	for read := 0; read < len(buf); {
-		// Negative timeout is an infinite timeout for poll().
-		remaining := time.Until(deadline).Milliseconds()
-		switch {
-		case remaining < 0:
-			return os.ErrDeadlineExceeded
-		case remaining > math.MaxInt:
-			return fmt.Errorf("timeout too big")
-		}
-
-		n, err := unix.Poll(pollFds, int(remaining))
-		switch {
-		case errors.Is(err, unix.EINTR):
-			continue
-		case err != nil:
-			return err
-		case n == 0:
-			return os.ErrDeadlineExceeded
-		case (pollFds[0].Revents & unix.POLLNVAL) != 0:
-			return fmt.Errorf("POLLNVAL")
-		case (pollFds[0].Revents & unix.POLLERR) != 0,
-			(pollFds[0].Revents & unix.POLLHUP) != 0:
-			return fmt.Errorf("printer disconnected")
-		case (pollFds[0].Revents & unix.POLLIN) == 0:
-			return fmt.Errorf("poll() returned but no data, n %d, revents: %x", n, pollFds[0].Revents)
-		}
-
-		n, err = readFull(int(p), buf[read:])
-		if err != nil {
-			return err
-		}
-		read += n
-	}
-
-	return nil
-}
-
-// readFull reads up to len(b) bytes, or EOF from fd.
-// On EOF no error is returned.
-func readFull(fd int, b []byte) (int, error) {
-	read := 0
-
-	for read != len(b) {
-		n, err := unix.Read(fd, b[read:])
-		switch {
-		case errors.Is(unix.EINTR, err):
-			continue
-		case err != nil:
-			return 0, err
-		// EOF.
-		case n == 0:
-			// Sometimes we seem to get spurious poll() events when there's nothing
-			// actually available to read.
-			// There are also no guarantees the full len(b) are immediately available to read.
-			return read, nil
-		}
-
-		read += n
-	}
-
-	return read, nil
-}
-
-func readUntilEOF(fd int) error {
-	b := make([]byte, 128)
-
-	for {
-		n, err := unix.Read(fd, b)
-		switch {
-		case errors.Is(unix.EINTR, err):
-			continue
-		case err != nil:
-			return err
-		// EOF.
-		case n == 0:
-			return nil
-		}
-	}
-}
-
 func (p PT700) Close() error {
-	return unix.Close(int(p))
+	return p.dev.Close()
 }

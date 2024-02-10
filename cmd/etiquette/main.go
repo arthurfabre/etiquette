@@ -65,37 +65,36 @@ type flags struct {
 }
 
 func print(labels io.Reader, flags flags) error {
+	printers, err := etiquette.Printers()
+	if err != nil {
+		return err
+	}
+
+	if flags.list {
+		fmt.Println(maps.Keys(printers))
+		return nil
+	}
+
 	var printer etiquette.Printer
-	switch {
-	case flags.printer == "", flags.list:
-		printers, err := etiquette.Printers()
-		if err != nil {
-			return err
+	if flags.printer != "" {
+		var ok bool
+		printer, ok = printers[flags.printer]
+		if !ok {
+			return fmt.Errorf("unknown or unsupported printer %q", flags.printer)
 		}
-
-		if flags.list {
-			fmt.Println(maps.Keys(printers))
-			return nil
-		}
-
+	} else {
 		if len(printers) == 0 {
 			return fmt.Errorf("no supported printers found")
 		}
 
 		if len(printers) != 1 {
-			// TODO - close all printers?
 			return fmt.Errorf("more than one printer found, select one with -printer: %v", maps.Keys(printers))
 		}
 		for _, p := range printers {
 			printer = p
 		}
-	default:
-		var err error
-		printer, err = etiquette.OpenPrinter(flags.printer)
-		if err != nil {
-			return err
-		}
 	}
+	// TODO - close all printers?
 	defer printer.Close()
 
 	info, err := printer.Info()
@@ -169,9 +168,4 @@ func text(info etiquette.PrinterInfo, labels io.Reader) ([]*monochrome.Image, er
 	}
 
 	return imgs, nil
-}
-
-func printPrinters(w io.Writer, printers map[string]etiquette.Printer) error {
-
-	return nil
 }
